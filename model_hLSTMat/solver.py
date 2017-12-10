@@ -167,7 +167,7 @@ class Solver(object):
                             ref[vid] = decode_captions(val_caps[val_ids == vid], self.data.vocab.idx2word)
                     # evaluate
                     scores = evaluate(ref=ref, cand=cand, get_scores=True)
-                    tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGEL']
+                    tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGE_L']
                     for tag in tags:
                         summary = tf.Summary()
                         summary.value.add(tag=tag, simple_value=scores[tag])
