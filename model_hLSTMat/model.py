@@ -38,10 +38,10 @@ class Model(object):
         with tf.variable_scope('initial_lstm', reuse=reuse):
             features_mean = tf.reduce_mean(features, 1)
 
-            h = tf.layers.dense(features_mean, self.dim_hidden, use_bias=True,
+            h = tf.layers.dense(features_mean, self.dim_hidden, activation=tf.nn.tanh, use_bias=True,
                                 kernel_initializer=self.weight_initializer, bias_initializer=self.const_initializer,
                                 name='h_init')
-            m = tf.layers.dense(features_mean, self.dim_hidden, use_bias=True,
+            m = tf.layers.dense(features_mean, self.dim_hidden, activation=tf.nn.tanh, use_bias=True,
                                 kernel_initializer=self.weight_initializer, bias_initializer=self.const_initializer,
                                 name='m_init')
             return h, m
@@ -86,9 +86,14 @@ class Model(object):
     def _mlp(self, h, _h, context, beta, reuse=False):
         with tf.variable_scope('mlp', reuse=reuse):
             x = tf.concat((h, (1 - beta) * _h, beta * context), axis=1)
-            emb = tf.layers.dense(x, self.dim_embed, activation=tf.nn.sigmoid, use_bias=True,
-                                  kernel_initializer=self.weight_initializer,
-                                  bias_initializer=self.const_initializer)
+            x = tf.layers.dense(h, self.dim_embed, activation=None, use_bias=False,
+                                kernel_initializer=self.weight_initializer)
+            x += tf.layers.dense((1 - beta) * _h, self.dim_embed, activation=None, use_bias=False,
+                                 kernel_initializer=self.weight_initializer)
+            x += tf.layers.dense(beta * context, self.dim_embed, activation=None, use_bias=True,
+                                 kernel_initializer=self.weight_initializer,
+                                 bias_initializer=self.const_initializer)
+            emb = tf.nn.tanh(x)
             p = tf.layers.dense(emb, self.num_words, activation=tf.nn.softmax, use_bias=True,
                                 kernel_initializer=self.weight_initializer,
                                 bias_initializer=self.const_initializer)
@@ -111,8 +116,8 @@ class Model(object):
         loss = 0.0
         alpha_list = []
         beta_list = []
-        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
-        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden, activation=tf.nn.sigmoid)
+        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden, activation=tf.nn.sigmoid)
         for t in range(self.n_time_step):  # max_length
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
                 _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])  # (batch, dim_hidden) (batch, dim_hidden)

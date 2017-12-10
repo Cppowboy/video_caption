@@ -167,6 +167,11 @@ class Solver(object):
                             ref[vid] = decode_captions(val_caps[val_ids == vid], self.data.vocab.idx2word)
                     # evaluate
                     scores = evaluate(ref=ref, cand=cand, get_scores=True)
+                    tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGEL']
+                    for tag in tags:
+                        summary = tf.Summary()
+                        summary.value.add(tag=tag, simple_value=scores[tag])
+                        summary_writer.add_summary(summary, e)
                     write_bleu(scores=scores, path=self.model_path, epoch=e)
 
                 # save model's parameters
