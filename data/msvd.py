@@ -200,6 +200,7 @@ class MSVD(object):
                 # 如果caption的长度少于规定的长度，就用<pad>（0）补齐
                 tokens.append(vocab('<pad>'))
                 l += 1
+            tokens = [vocab('<start>')] + tokens
             captions[split].append(tokens)
             video_ids[split].append(video_id)
 
