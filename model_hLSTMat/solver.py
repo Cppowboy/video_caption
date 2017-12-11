@@ -130,7 +130,7 @@ class Solver(object):
                     if (i + 1) % self.print_every == 0:
                         print "\nTrain loss at epoch %d & iteration %d (mini-batch): %.5f" % (e + 1, i + 1, l)
                         ground_truths = train_caps[train_ids == image_idxs_batch[0]]
-                        decoded = decode_captions(ground_truths, self.data.vocab.idx2word)
+                        decoded = decode_captions(ground_truths[:, 1:], self.data.vocab.idx2word)
                         for j, gt in enumerate(decoded):
                             print "Ground truth %d: %s" % (j + 1, gt)
                         gen_caps = sess.run(generated_captions, feed_dict)
@@ -164,7 +164,7 @@ class Solver(object):
                     ref = {}
                     for cap, vid in zip(val_caps, val_ids):
                         if not ref.has_key(vid):
-                            ref[vid] = decode_captions(val_caps[val_ids == vid], self.data.vocab.idx2word)
+                            ref[vid] = decode_captions(val_caps[val_ids == vid][:, 1:], self.data.vocab.idx2word)
                     # evaluate
                     scores = evaluate(ref=ref, cand=cand, get_scores=True)
                     tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGE_L']

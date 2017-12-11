@@ -1,28 +1,50 @@
+# =========================================================================================
+# Implementation of "Show, Attend and Tell: Neural Caption Generator With Visual Attention".
+# There are some notations.
+# N is batch size.
+# L is spacial size of feature vector (196).
+# D is dimension of image feature vector (512).
+# T is the number of time step which is equal to caption's length-1 (16).
+# V is vocabulary size (about 10000).
+# M is dimension of word vector which is embedding size (default is 512).
+# H is dimension of hidden state (default is 1024).
+# =========================================================================================
+
 from __future__ import division
 
 import tensorflow as tf
 
 
 class Model(object):
-    def __init__(self, word_to_idx, dim_feature=[28, 2048], dim_embed=512, dim_hidden=1024, n_time_step=30,
-                 batch_size=64):
+    def __init__(self, word_to_idx, dim_feature=[196, 2048], dim_embed=512, dim_hidden=1024, n_time_step=16,
+                 prev2out=True, ctx2out=True, alpha_c=0.0, selector=True, dropout=True):
         """
         Args:
             word_to_idx: word-to-index mapping dictionary.
             dim_feature: (optional) Dimension of video feature vectors.
             dim_embed: (optional) Dimension of word embedding.
             dim_hidden: (optional) Dimension of all hidden state.
-            n_time_step: (optional) Time step size of LSTM, max length of sentence.
+            n_time_step: (optional) Time step size of LSTM.
+            prev2out: (optional) previously generated word to hidden state. (see Eq (7) for explanation)
+            ctx2out: (optional) context to hidden state (see Eq (7) for explanation)
+            alpha_c: (optional) Doubly stochastic regularization coefficient. (see Section (4.2.1) for explanation)
+            selector: (optional) gating scalar for context vector. (see Section (4.2.1) for explanation)
+            dropout: (optional) If true then dropout layer is added.
         """
 
         self.word_to_idx = word_to_idx
-        # self.idx_to_word = {i: w for w, i in word_to_idx.iteritems()}
+        self.idx_to_word = {i: w for w, i in word_to_idx.iteritems()}
+        self.prev2out = prev2out
+        self.ctx2out = ctx2out
+        self.alpha_c = alpha_c
+        self.selector = selector
+        self.dropout = dropout
         self.num_words = len(word_to_idx)
-        self.dim_feature = dim_feature
+        self.L = dim_feature[0]
+        self.D = dim_feature[1]
         self.dim_embed = dim_embed
         self.dim_hidden = dim_hidden
         self.n_time_step = n_time_step
-        self.batch_size = batch_size
         self._start = word_to_idx['<start>']
         self._null = word_to_idx['<pad>']
 
@@ -31,20 +53,30 @@ class Model(object):
         self.emb_initializer = tf.random_uniform_initializer(minval=-1.0, maxval=1.0)
 
         # Place holder for features and captions
-        self.features = tf.placeholder(tf.float32, [None, self.dim_feature[0], self.dim_feature[1]])
-        self.captions = tf.placeholder(tf.int32, [None, self.n_time_step + 1])
+        self.features = tf.placeholder(tf.float32, [None, self.L, self.D])
+        self.captions = tf.placeholder(tf.int32, [None, self.n_time_step + 2])
 
-    def _initial_lstm(self, features, reuse=False):
-        with tf.variable_scope('initial_lstm', reuse=reuse):
+    def _get_initial_lstm(self, features):
+        with tf.variable_scope('initial_lstm'):
             features_mean = tf.reduce_mean(features, 1)
 
-            h = tf.layers.dense(features_mean, self.dim_hidden, activation=tf.nn.tanh, use_bias=True,
-                                kernel_initializer=self.weight_initializer, bias_initializer=self.const_initializer,
-                                name='h_init')
-            m = tf.layers.dense(features_mean, self.dim_hidden, activation=tf.nn.tanh, use_bias=True,
-                                kernel_initializer=self.weight_initializer, bias_initializer=self.const_initializer,
-                                name='m_init')
-            return h, m
+            w_h = tf.get_variable('w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            b_h = tf.get_variable('b_h', [self.dim_hidden], initializer=self.const_initializer)
+            h = tf.nn.tanh(tf.matmul(features_mean, w_h) + b_h)
+
+            w_m = tf.get_variable('w_m', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            b_m = tf.get_variable('b_m', [self.dim_hidden], initializer=self.const_initializer)
+            m = tf.nn.tanh(tf.matmul(features_mean, w_m) + b_m)
+
+            _w_h = tf.get_variable('_w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            _b_h = tf.get_variable('_b_h', [self.dim_hidden], initializer=self.const_initializer)
+            _h = tf.nn.tanh(tf.matmul(features_mean, _w_h) + _b_h)
+
+            _w_m = tf.get_variable('_w_m', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            _b_m = tf.get_variable('_b_m', [self.dim_hidden], initializer=self.const_initializer)
+            _m = tf.nn.tanh(tf.matmul(features_mean, _w_m) + _b_m)
+
+            return m, h, _m, _h
 
     def _word_embedding(self, inputs, reuse=False):
         with tf.variable_scope('word_embedding', reuse=reuse):
@@ -52,135 +84,161 @@ class Model(object):
             x = tf.nn.embedding_lookup(w, inputs, name='word_vector')  # (N, n_time_step, dim_embed ) or (N, dim_embed)
             return x
 
-    def _temporal_attention(self, features, h, reuse=False):
-        with tf.variable_scope('temporal_attention', reuse=reuse):
-            features_proj = tf.layers.dense(features, self.dim_feature[1], use_bias=False,
-                                            kernel_initializer=self.weight_initializer)
-            e = tf.layers.dense(h, self.dim_feature[1], use_bias=True,
-                                kernel_initializer=self.weight_initializer,
-                                bias_initializer=self.const_initializer)
-            e = tf.nn.tanh(tf.expand_dims(e, axis=1) + features_proj)
-            alpha = tf.layers.dense(e, 1, activation=tf.nn.softmax, use_bias=True,
-                                    kernel_initializer=self.weight_initializer,
-                                    bias_initializer=self.const_initializer)
+    def _project_features(self, features):
+        with tf.variable_scope('project_features'):
+            w = tf.get_variable('w', [self.D, self.D], initializer=self.weight_initializer)
+            features_flat = tf.reshape(features, [-1, self.D])
+            features_proj = tf.matmul(features_flat, w)
+            features_proj = tf.reshape(features_proj, [-1, self.L, self.D])
+            return features_proj
 
-            context = tf.reduce_mean(features * alpha, axis=1)
+    def _attention_layer(self, features, features_proj, h, reuse=False):
+        with tf.variable_scope('attention_layer', reuse=reuse):
+            w = tf.get_variable('w', [self.dim_hidden, self.D], initializer=self.weight_initializer)
+            b = tf.get_variable('b', [self.D], initializer=self.const_initializer)
+            w_att = tf.get_variable('w_att', [self.D, 1], initializer=self.weight_initializer)
+
+            h_att = tf.nn.relu(features_proj + tf.expand_dims(tf.matmul(h, w), 1) + b)  # (N, L, D)
+            out_att = tf.reshape(tf.matmul(tf.reshape(h_att, [-1, self.D]), w_att), [-1, self.L])  # (N, L)
+            alpha = tf.nn.softmax(out_att)
+            context = tf.reduce_sum(features * tf.expand_dims(alpha, 2), 1, name='context')  # (N, D)
             return context, alpha
 
-    def _adjusted_temporal_attention(self, h, reuse=False):
-        with tf.variable_scope('adjusted_temporal_attention', reuse=reuse):
-            beta = tf.layers.dense(h, 1, activation=tf.nn.sigmoid, use_bias=False,
-                                   kernel_initializer=self.weight_initializer)
-            # _context = beta * context + (1 - beta) * _h
-            # return _context, beta
-            return beta
+    def _selector(self, context, h, reuse=False):
+        with tf.variable_scope('selector', reuse=reuse):
+            w = tf.get_variable('w', [self.dim_hidden, 1], initializer=self.weight_initializer)
+            b = tf.get_variable('b', [1], initializer=self.const_initializer)
+            sel = tf.nn.sigmoid(tf.matmul(h, w) + b, 'sel')  # (N, 1)
+            context = tf.multiply(sel, context, name='selected_context')
+            return context, sel
 
-    # def _adjusted_temporal_attention(self, context, h, _h, reuse=False):
-    #     with tf.variable_scope('adjusted_temporal_attention', reuse=reuse):
-    #         beta = tf.layers.dense(h, 1, activation=tf.nn.sigmoid, use_bias=False,
-    #                                kernel_initializer=self.weight_initializer)
-    #         # _context = beta * context + (1 - beta) * _h
-    #         # return _context, beta
-    #         return beta
+    def _mlp_layer(self, x, h, context, _h, beta, dropout=False, reuse=False):
+        with tf.variable_scope('logits', reuse=reuse):
+            w_h = tf.get_variable('w_h', [self.dim_hidden, self.dim_embed], initializer=self.weight_initializer)
+            b_h = tf.get_variable('b_h', [self.dim_embed], initializer=self.const_initializer)
+            w_out = tf.get_variable('w_out', [self.dim_embed, self.num_words], initializer=self.weight_initializer)
+            b_out = tf.get_variable('b_out', [self.num_words], initializer=self.const_initializer)
 
-    def _mlp(self, h, _h, context, beta, reuse=False):
-        with tf.variable_scope('mlp', reuse=reuse):
-            x = tf.concat((h, (1 - beta) * _h, beta * context), axis=1)
-            x = tf.layers.dense(h, self.dim_embed, activation=None, use_bias=False,
-                                kernel_initializer=self.weight_initializer)
-            x += tf.layers.dense((1 - beta) * _h, self.dim_embed, activation=None, use_bias=False,
-                                 kernel_initializer=self.weight_initializer)
-            x += tf.layers.dense(beta * context, self.dim_embed, activation=None, use_bias=True,
-                                 kernel_initializer=self.weight_initializer,
-                                 bias_initializer=self.const_initializer)
-            emb = tf.nn.tanh(x)
-            p = tf.layers.dense(emb, self.num_words, activation=tf.nn.softmax, use_bias=True,
-                                kernel_initializer=self.weight_initializer,
-                                bias_initializer=self.const_initializer)
-            return p
+            if dropout:
+                h = tf.nn.dropout(h, 0.5)
+            h_logits = tf.matmul(h, w_h) + b_h
+
+            if self.prev2out:
+                h_logits += x
+
+            if self.ctx2out:
+                w_ctx2out = tf.get_variable('w_ctx2out', [self.D, self.dim_embed], initializer=self.weight_initializer)
+                h_logits += tf.matmul(tf.multiply(beta, context), w_ctx2out)
+                w__h = tf.get_variable('w__h', [self.dim_hidden, self.dim_embed], initializer=self.weight_initializer)
+                h_logits += tf.matmul(tf.multiply(1 - beta, _h), w__h)
+            h_logits = tf.nn.tanh(h_logits)
+
+            if dropout:
+                h_logits = tf.nn.dropout(h_logits, 0.5)
+            out_logits = tf.matmul(h_logits, w_out) + b_out
+            return out_logits
+
+    def _batch_norm(self, x, mode='train', name=None):
+        return tf.contrib.layers.batch_norm(inputs=x,
+                                            decay=0.95,
+                                            center=True,
+                                            scale=True,
+                                            is_training=(mode == 'train'),
+                                            updates_collections=None,
+                                            scope=(name + 'batch_norm'))
 
     def build_model(self):
-        features = self.features  # (batch, frames, dim_feature)
-        captions = self.captions  # (batch, max_length + 1)
-        batch_size = self.batch_size  # batch
+        features = self.features
+        captions = self.captions
+        batch_size = tf.shape(features)[0]
 
-        x_in = captions[:, :self.n_time_step]  # (batch, max_length)
-        x_out = captions[:, 1:]  # (batch, max_length)
-        mask = tf.to_float(
-            tf.not_equal(x_out, self._null))  # (batch, max_length), 1 if word is not null, 0 if word is null
+        x_in = captions[:, :self.n_time_step + 1]
+        x_out = captions[:, 1:]
+        mask = tf.to_float(tf.not_equal(x_out, self._null))
 
-        h, m = self._initial_lstm(
-            features=features)  # (batch, dim_hidden) (batch, dim_hidden) (batch, dim_hidden) (batch, dim_hidden)
-        y = self._word_embedding(inputs=x_in)  # (batch, dim_emb)
+        # batch normalize feature vectors
+        features = self._batch_norm(features, mode='train', name='conv_features')
+
+        m, h, _m, _h = self._get_initial_lstm(features=features)
+        y = self._word_embedding(inputs=x_in)
+        features_proj = self._project_features(features=features)
 
         loss = 0.0
         alpha_list = []
         beta_list = []
-        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden, activation=tf.nn.sigmoid)
-        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden, activation=tf.nn.sigmoid)
-        for t in range(self.n_time_step):  # max_length
+        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        for t in range(self.n_time_step):
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])  # (batch, dim_hidden) (batch, dim_hidden)
+                _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])
 
-            context, alpha = self._temporal_attention(features, h,
-                                                      reuse=(t != 0))  # (batch, dim_hidden) (batch, dim_hidden)
+            context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
 
+            if self.selector:
+                context, beta = self._selector(context, h, reuse=(t != 0))
+                beta_list.append(beta)
+
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h, state=(
-                    tf.zeros_like(h), tf.zeros_like(h)))  # (batch, dim_hidden) (batch, dim_hidden)
+                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
 
-            # _context, beta = self._adjusted_temporal_attention(context, h, _h,
-            #                                                    reuse=(t != 0))  # (batch, dim_hidden) (batch, 1)
-            beta = self._adjusted_temporal_attention(h, reuse=(t != 0))  # (batch, dim_hidden) (batch, 1)
-            beta_list.append(beta)
-
-            logits = self._mlp(h, _h, context, beta, reuse=(t != 0))  # (batch, num_words)
-
+            # _context, beta = self._adjusted_layer(context, h, _h, reuse=(t != 0))
+            logits = self._mlp_layer(y[:, t, :], h, context, _h, beta, dropout=self.dropout, reuse=(t != 0))
             loss += tf.reduce_sum(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=x_out[:, t]) * mask[:, t])
+
+        if self.alpha_c > 0:
+            alphas = tf.transpose(tf.stack(alpha_list), (1, 0, 2))  # (N, T, L)
+            alphas_all = tf.reduce_sum(alphas, 1)  # (N, L)
+            alpha_reg = self.alpha_c * tf.reduce_sum((1.0 - alphas_all) ** 2)
+            loss += alpha_reg
 
         return loss / tf.to_float(batch_size)
 
     def build_sampler(self, max_len=20):
         features = self.features
 
-        h, m = self._initial_lstm(features=features)  # (dim_hidden,) (dim_hidden,)
+        # batch normalize feature vectors
+        features = self._batch_norm(features, mode='test', name='conv_features')
+
+        m, h, _m, _h = self._get_initial_lstm(features=features)
+        features_proj = self._project_features(features=features)
 
         sampled_word_list = []
         alpha_list = []
+        # sel_list = []
         beta_list = []
         bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
         top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
 
-        sampled_word = self._start
         for t in range(max_len):
-            # x = self._word_embedding(inputs=sampled_word, reuse=(t != 0))  # (dim_emb,)
             if t == 0:
                 x = self._word_embedding(inputs=tf.fill([tf.shape(features)[0]], self._start))
             else:
                 x = self._word_embedding(inputs=sampled_word, reuse=True)
 
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=x, state=[m, h])  # (dim_hidden,)
+                _, (m, h) = bottom_lstm_cell(inputs=x, state=[m, h])
 
-            context, alpha = self._temporal_attention(features, h, reuse=(t != 0))  # (dim_hidden,) (dim_hidden,)
+            context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
 
+            if self.selector:
+                context, beta = self._selector(context, h, reuse=(t != 0))
+                # sel_list.append(sel)
+                beta_list.append(beta)
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h,
-                                            state=(tf.zeros_like(h), tf.zeros_like(h)))  # (dim_hidden,) (dim_hidden,)
+                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
 
-            # _context, beta = self._adjusted_temporal_attention(context, h, _h, reuse=(t != 0))  # (dim_hidden,) (1,)
-            beta = self._adjusted_temporal_attention(h, reuse=(t != 0))  # (dim_hidden,) (1,)
-            beta_list.append(beta)
-
-            # logits = self._mlp(h, _context, reuse=(t != 0))  # (num_words,)
-            logits = self._mlp(h, _h, context, beta, reuse=(t != 0))  # (num_words,)
+            # _context, beta = self._adjusted_layer(context, h, _h)
+            # beta_list.append(beta)
+            # logits = self._mlp_layer(x, h, _context, dropout=self.dropout, reuse=(t != 0))
+            logits = self._mlp_layer(x, h, context, _h, beta, dropout=self.dropout, reuse=(t != 0))
             sampled_word = tf.argmax(logits, 1)
             sampled_word_list.append(sampled_word)
 
-        alphas = tf.transpose(tf.stack(alpha_list), (1, 0, 2, 3))  # (max_length, num_words)
-        betas = tf.transpose(tf.squeeze(beta_list), (1, 0))  # (max_length, 1)
-        sampled_captions = tf.transpose(tf.stack(sampled_word_list), (1, 0))  # (max_length, num_words)
+        alphas = tf.transpose(tf.stack(alpha_list), (1, 0, 2))  # (N, T, L)
+        # sels = tf.transpose(tf.squeeze(sel_list), (1, 0))  # (N, T)
+        betas = tf.transpose(tf.squeeze(beta_list), (1, 0))  # (N, T)
+        sampled_captions = tf.transpose(tf.stack(sampled_word_list), (1, 0))  # (N, max_len)
         return alphas, betas, sampled_captions
