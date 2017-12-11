@@ -54,7 +54,7 @@ class Model(object):
 
         # Place holder for features and captions
         self.features = tf.placeholder(tf.float32, [None, self.L, self.D])
-        self.captions = tf.placeholder(tf.int32, [None, self.n_time_step + 1])
+        self.captions = tf.placeholder(tf.int32, [None, self.n_time_step + 2])
 
     def _get_initial_lstm(self, features):
         with tf.variable_scope('initial_lstm'):
@@ -112,36 +112,6 @@ class Model(object):
             context = tf.multiply(sel, context, name='selected_context')
             return context, sel
 
-    # def _adjusted_layer(self, context, h, _h, reuse=False):
-    #     with tf.variable_scope('adjusted', reuse=reuse):
-    #         w_s = tf.get_variable('w_s', [self.dim_hidden, 1], initializer=self.weight_initializer)
-    #         beta = tf.nn.sigmoid(tf.matmul(h, w_s))
-    #         _context = tf.multiply(beta, context) + tf.multiply(1 - beta, _h)
-    #         return _context, beta
-    #
-    # def _mlp_layer(self, x, h, _context, dropout=False, reuse=False):
-    #     with tf.variable_scope('logits', reuse=reuse):
-    #         w_h = tf.get_variable('w_h', [self.dim_hidden, self.dim_embed], initializer=self.weight_initializer)
-    #         b_h = tf.get_variable('b_h', [self.dim_embed], initializer=self.const_initializer)
-    #         w_out = tf.get_variable('w_out', [self.dim_embed, self.num_words], initializer=self.weight_initializer)
-    #         b_out = tf.get_variable('b_out', [self.num_words], initializer=self.const_initializer)
-    #
-    #         if dropout:
-    #             h = tf.nn.dropout(h, 0.5)
-    #         h_logits = tf.matmul(h, w_h) + b_h
-    #
-    #         if self.ctx2out:
-    #             w_ctx2out = tf.get_variable('w_ctx2out', [self.D, self.dim_embed], initializer=self.weight_initializer)
-    #             h_logits += tf.matmul(_context, w_ctx2out)
-    #
-    #         if self.prev2out:
-    #             h_logits += x
-    #         h_logits = tf.nn.tanh(h_logits)
-    #
-    #         if dropout:
-    #             h_logits = tf.nn.dropout(h_logits, 0.5)
-    #         out_logits = tf.matmul(h_logits, w_out) + b_out
-    #         return out_logits
     def _mlp_layer(self, x, h, context, _h, beta, dropout=False, reuse=False):
         with tf.variable_scope('logits', reuse=reuse):
             w_h = tf.get_variable('w_h', [self.dim_hidden, self.dim_embed], initializer=self.weight_initializer)
@@ -182,7 +152,7 @@ class Model(object):
         captions = self.captions
         batch_size = tf.shape(features)[0]
 
-        x_in = captions[:, :self.n_time_step]
+        x_in = captions[:, :self.n_time_step + 1]
         x_out = captions[:, 1:]
         mask = tf.to_float(tf.not_equal(x_out, self._null))
 
