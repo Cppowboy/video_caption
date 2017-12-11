@@ -1,4 +1,5 @@
 from data.msvd import MSVD
+from data.msr_vtt import MSRVTT
 import cPickle as pickle
 import os
 
@@ -22,7 +23,16 @@ class DataEngine(object):
         return msvd
 
     def msr_vtt(self):
-        raise NotImplementedError
+        msrvtt_file = './msrvtt.pkl'
+        if os.path.isfile(msrvtt_file):
+            msvd = pickle.load(open(msrvtt_file, 'r'))
+            return msvd
+        msr_vtt_json_path = '/home/sensetime/data/msr-vtt/videodatainfo_2017.json'
+        msr_vtt_feature_path = '/home/sensetime/data/msr-vtt/npy'
+        max_words = 30
+        msrvtt = MSRVTT(msr_vtt_json_path, msr_vtt_feature_path, max_words)
+        pickle.dump(msrvtt, open(msrvtt_file, 'w'))
+        return msrvtt
 
 
 if __name__ == '__main__':

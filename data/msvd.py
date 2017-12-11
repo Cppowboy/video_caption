@@ -13,40 +13,7 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 import os
-
-
-class Vocabulary(object):
-    def __init__(self):
-        self.word2idx = {}
-        self.idx2word = []
-        self.nwords = 0
-        self.add_word('<pad>')
-        self.add_word('<start>')
-        self.add_word('<end>')
-        self.add_word('<unk>')
-
-    def add_word(self, w):
-        '''
-        将新单词加入词汇表中
-        '''
-        if w not in self.word2idx:
-            self.word2idx[w] = self.nwords
-            self.idx2word.append(w)
-            self.nwords += 1
-
-    def __call__(self, w):
-        '''
-        返回单词对应的id
-        '''
-        if w not in self.word2idx:
-            return self.word2idx['<unk>']
-        return self.word2idx[w]
-
-    def __len__(self):
-        '''
-        得到词汇表中词汇的数量
-        '''
-        return self.nwords
+from vocab import Vocabulary
 
 
 class MSVD(object):
@@ -226,5 +193,6 @@ class MSVD(object):
 if __name__ == '__main__':
     msvd_csv_path = '/home/sensetime/data/msvd/MSR_Video_Description_Corpus.csv'
     msvd_video_name2id_map = '/home/sensetime/data/msvd/youtube2text_iccv15/dict_youtube_mapping.pkl'
-    msvd = MSVD(msvd_csv_path, msvd_video_name2id_map)
-    captions, lengths, video_ids = msvd.captions()
+    msvd_feature_path = '/home/sensetime/data/msvd/npy2'
+    msvd = MSVD(msvd_csv_path, msvd_video_name2id_map, msvd_feature_path, 30)
+    print(msvd)
