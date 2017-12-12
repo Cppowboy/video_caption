@@ -1,6 +1,7 @@
 # coding: utf-8
 import json
-from vocab import Vocabulary
+#from vocab import Vocabulary
+from data.vocab import Vocabulary
 import nltk
 from collections import Counter
 import numpy as np
