@@ -16,7 +16,7 @@ def main():
                   dim_hidden=1024, n_time_step=30)
 
     solver = Solver(model, data, n_epochs=100, batch_size=64, update_rule='adam',
-                    learning_rate=0.0001, print_every=25, save_every=100, image_path='./image/',
+                    learning_rate=0.0001, print_every=25, save_every=10, image_path='./image/',
                     pretrained_model=None, model_path='model/lstm/', test_model='model/lstm/model-10',
                     print_bleu=True, log_path='log/')
 

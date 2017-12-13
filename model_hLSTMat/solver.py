@@ -100,6 +100,11 @@ class Solver(object):
         print "Batch size: %d" % self.batch_size
         print "Iterations per epoch: %d" % n_iters_per_epoch
 
+        tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGE_L']
+        tag2idx = {tag: i for i, tag in enumerate(tags)}
+        history_score = []
+        history_loss = []
+
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
         with tf.Session(config=config) as sess:
@@ -147,36 +152,46 @@ class Solver(object):
                 curr_loss = 0
 
                 # print out BLEU scores and file write
-                if self.print_bleu:
-                    unique_val_ids = list(set(val_ids))
-                    val_features = [self.data.feature(vid) for vid in unique_val_ids]
-                    val_features = np.asarray(val_features)
-                    all_gen_cap = np.ndarray((val_features.shape[0], self.max_words), dtype=np.int)
-                    for i in range(int(ceil(val_features.shape[0] / float(self.batch_size)))):
-                        features_batch = val_features[i * self.batch_size:(i + 1) * self.batch_size]
-                        feed_dict = {self.model.features: features_batch}
-                        gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
-                        all_gen_cap[i * self.batch_size:(i + 1) * self.batch_size] = gen_cap
+                # if self.print_bleu:
+                unique_val_ids = list(set(val_ids))
+                val_features = [self.data.feature(vid) for vid in unique_val_ids]
+                val_features = np.asarray(val_features)
+                all_gen_cap = np.ndarray((val_features.shape[0], self.max_words), dtype=np.int)
+                for i in range(int(ceil(val_features.shape[0] / float(self.batch_size)))):
+                    features_batch = val_features[i * self.batch_size:(i + 1) * self.batch_size]
+                    feed_dict = {self.model.features: features_batch}
+                    gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
+                    all_gen_cap[i * self.batch_size:(i + 1) * self.batch_size] = gen_cap
 
-                    all_decoded = decode_captions(all_gen_cap, self.data.vocab.idx2word)
-                    # create cand dict
-                    cand = {}
-                    for vid, sentence in zip(unique_val_ids, all_decoded):
-                        cand[vid] = [sentence]
-                    # create ref dict
-                    ref = {}
-                    for cap, vid in zip(val_caps, val_ids):
-                        if not ref.has_key(vid):
-                            ref[vid] = decode_captions(val_caps[val_ids == vid][:, 1:], self.data.vocab.idx2word)
-                    # evaluate
-                    scores = evaluate(ref=ref, cand=cand, get_scores=True)
-                    tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGE_L']
-                    for tag in tags:
-                        summary = tf.Summary()
-                        summary.value.add(tag=tag, simple_value=scores[tag])
-                        summary_writer.add_summary(summary, e)
-                    write_bleu(scores=scores, path=self.model_path, epoch=e)
+                all_decoded = decode_captions(all_gen_cap, self.data.vocab.idx2word)
+                # create cand dict
+                cand = {}
+                for vid, sentence in zip(unique_val_ids, all_decoded):
+                    cand[vid] = [sentence]
+                # create ref dict
+                ref = {}
+                for cap, vid in zip(val_caps, val_ids):
+                    if not ref.has_key(vid):
+                        ref[vid] = decode_captions(val_caps[val_ids == vid][:, 1:], self.data.vocab.idx2word)
+                # evaluate
+                scores = evaluate(ref=ref, cand=cand, get_scores=True)
+                for tag in tags:
+                    summary = tf.Summary()
+                    summary.value.add(tag=tag, simple_value=scores[tag])
+                    summary_writer.add_summary(summary, e)
+                write_bleu(scores=scores, path=self.model_path, epoch=e)
 
+                # save best model
+                if len(history_loss) <= 0 or prev_loss <= np.array(history_loss).min():
+                    saver.save(sess, os.path.join(self.model_path, 'model_best'))
+                    print "model_best saved."
+                history_loss.append(prev_loss)
+                # save best score model
+                for i, tag in enumerate(tags):
+                    if len(history_score) <= 0 or scores[tag] >= np.array(history_score)[:, i].max():
+                        saver.save(sess, os.path.join(self.model_path, 'model_%s' % (tag)))
+                        print "model_%s saved." % (tag)
+                history_score.append([scores[tag] for tag in tags])
                 # save model's parameters
                 if (e + 1) % self.save_every == 0:
                     saver.save(sess, os.path.join(self.model_path, 'model'), global_step=e + 1)
@@ -202,7 +217,8 @@ class Solver(object):
         n_examples = len(unique_ids)
         n_iters_per_epoch = int(np.ceil(float(n_examples) / self.batch_size))
         # build a graph to sample captions
-        alphas, betas, sampled_captions = self.model.build_sampler(max_len=20)  # (N, max_len, L), (N, max_len)
+        alphas, betas, sampled_captions = self.model.build_sampler(
+            max_len=self.max_words)  # (N, max_len, L), (N, max_len)
 
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
