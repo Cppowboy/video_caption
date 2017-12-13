@@ -75,7 +75,10 @@ class Solver(object):
 
         # train op
         with tf.name_scope('optimizer'):
-            optimizer = self.optimizer(learning_rate=self.learning_rate)
+            if self.optimizer == tf.train.AdamOptimizer:
+                optimizer = self.optimizer(learning_rate=self.learning_rate, beta1=0.1, beta2=0.001)
+            else:
+                optimizer = self.optimizer(learning_rate=self.learning_rate)
             grads = tf.gradients(loss, tf.trainable_variables())
             grads_and_vars = list(zip(grads, tf.trainable_variables()))
             train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars)
@@ -132,7 +135,7 @@ class Solver(object):
                         ground_truths = train_caps[train_ids == image_idxs_batch[0]]
                         decoded = decode_captions(ground_truths[:, 1:], self.data.vocab.idx2word)
                         for j, gt in enumerate(decoded):
-                            print "Ground truth %d: %s" % (j + 1, gt)
+                            print "Ground truth %d: %s" % (j + 1, gt.encode('utf-8'))
                         gen_caps = sess.run(generated_captions, feed_dict)
                         decoded = decode_captions(gen_caps, self.data.vocab.idx2word)
                         print "Generated caption: %s\n" % decoded[0]
