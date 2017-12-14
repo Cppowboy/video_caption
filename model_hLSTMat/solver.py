@@ -165,7 +165,7 @@ class Solver(object):
         for i in range(int(ceil(len(unique_ids) / float(self.batch_size)))):
             features_batch = [self.data.feature(vid) for vid in
                               unique_ids[i * self.batch_size:(i + 1) * self.batch_size]]
-            features_batch = np.asarray(features_batch)鴀
+            features_batch = np.asarray(features_batch)
             feed_dict = {self.model.features: features_batch}
             gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
             all_gen_cap[i * self.batch_size:(i + 1) * self.batch_size] = gen_cap
