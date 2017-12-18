@@ -13,7 +13,7 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 import os
-#from vocab import Vocabulary
+# from vocab import Vocabulary
 from data.vocab import Vocabulary
 
 
@@ -118,11 +118,11 @@ class MSVD(object):
         '''
         split_dict = {}
 
-        for i in range(1, 1201):
+        for i in range(1200):
             split_dict[i] = 'train'
-        for i in range(1201, 1301):
+        for i in range(1200, 1300):
             split_dict[i] = 'val'
-        for i in range(1301, 1971):
+        for i in range(1300, 1970):
             split_dict[i] = 'test'
 
         # pprint.pprint(split_dict)
