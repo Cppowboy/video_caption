@@ -148,6 +148,10 @@ class Solver(object):
                     for it in range(n_iters_per_epoch):
                         captions_batch = train_caps[it * self.batch_size:(it + 1) * self.batch_size]
                         image_idxs_batch = train_ids[it * self.batch_size:(it + 1) * self.batch_size]
+                        if len(captions_batch) < self.batch_size:
+                            l = len(captions_batch)
+                            captions_batch += train_caps[:self.batch_size - l]
+                            image_idxs_batch += train_ids[:self.batch_size - l]
                         features_batch = [self.data.feature(vid) for vid in image_idxs_batch]
                         feed_dict = {self.features: features_batch, self.captions: captions_batch}
                         _, loss, summary_str = sess.run((train_op, loss_op, summary_op), feed_dict=feed_dict)
@@ -186,6 +190,9 @@ class Solver(object):
         for i in range(int(ceil(len(unique_ids) / float(self.batch_size)))):
             features_batch = [self.data.feature(vid) for vid in
                               unique_ids[i * self.batch_size:(i + 1) * self.batch_size]]
+            if len(features_batch) < self.batch_size:
+                l = len(features_batch)
+                features_batch += [self.data.feature(vid) for vid in unique_ids[:self.batch_size - l]]
             features_batch = np.asarray(features_batch)
             feed_dict = {self.features: features_batch}
             gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
