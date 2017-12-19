@@ -186,14 +186,17 @@ class Solver(object):
         caps = self.data.captions[split]
         ids = self.data.video_ids[split]
         unique_ids = list(set(ids))
-
+        num_iter = int(ceil(len(unique_ids) / float(self.batch_size)))
+        while len(unique_ids) < num_iter * self.batch_size:
+            unique_ids += unique_ids
+        unique_ids = unique_ids[:num_iter * self.batch_size]
         all_gen_cap = np.ndarray((len(unique_ids), self.max_words), dtype=np.int)
-        for i in range(int(ceil(len(unique_ids) / float(self.batch_size)))):
+        for i in range(num_iter):
             features_batch = [self.data.feature(vid) for vid in
                               unique_ids[i * self.batch_size:(i + 1) * self.batch_size]]
-            if len(features_batch) < self.batch_size:
-                l = len(features_batch)
-                features_batch += [self.data.feature(vid) for vid in unique_ids[:self.batch_size - l]]
+            # if len(features_batch) < self.batch_size:
+            #     l = len(features_batch)
+            #     features_batch += [self.data.feature(vid) for vid in unique_ids[:self.batch_size - l]]
             features_batch = np.asarray(features_batch)
             feed_dict = {self.features: features_batch}
             gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
