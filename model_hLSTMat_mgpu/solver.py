@@ -150,8 +150,9 @@ class Solver(object):
                         image_idxs_batch = train_ids[it * self.batch_size:(it + 1) * self.batch_size]
                         if len(captions_batch) < self.batch_size:
                             l = len(captions_batch)
-                            captions_batch += train_caps[:self.batch_size - l]
-                            image_idxs_batch += train_ids[:self.batch_size - l]
+                            captions_batch = np.concatenate((captions_batch, train_caps[:self.batch_size - l]), axis=0)
+                            image_idxs_batch = np.concatenate((image_idxs_batch, train_ids[:self.batch_size - l]),
+                                                              axis=0)
                         features_batch = [self.data.feature(vid) for vid in image_idxs_batch]
                         feed_dict = {self.features: features_batch, self.captions: captions_batch}
                         _, loss, summary_str = sess.run((train_op, loss_op, summary_op), feed_dict=feed_dict)
