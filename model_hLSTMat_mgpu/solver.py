@@ -120,11 +120,17 @@ class Solver(object):
                 # average grad
                 average_grad = self.average_gradients(tower_grad)
                 # initialize optimizer
-                optimizer = self.optimizer(learning_rate=self.learning_rate, beta1=0.1, beta2=0.001)
+                global_step = tf.Variable(0, trainable=False)
+                boundaries = [10 * n_iters_per_epoch]
+                values = [self.learning_rate, 0.1 * self.learning_rate]
+                piecewise_learning_rate = tf.train.piecewise_constant(global_step, boundaries, values)
+                learning_rate = piecewise_learning_rate
+                optimizer = self.optimizer(learning_rate=learning_rate, beta1=0.1, beta2=0.001)
                 # train operation: apply gradients
                 train_op = optimizer.apply_gradients(zip(average_grad, tf.trainable_variables()))
 
                 # summary op
+                tf.summary.scalar('learning_rate', learning_rate)
                 tf.summary.scalar('batch_loss', loss_op)
                 for var in tf.trainable_variables():
                     tf.summary.histogram(var.op.name, var)
