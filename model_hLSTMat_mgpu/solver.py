@@ -73,11 +73,8 @@ class Solver(object):
         # train/val dataset
         train_caps, train_lengths, train_ids = self.data.captions['train'], self.data.lengths['train'], \
                                                self.data.video_ids['train']
-        val_caps, val_lengths, val_ids = self.data.captions['val'], self.data.lengths['val'], self.data.video_ids['val']
         n_examples = len(train_caps)
-        n_val = len(val_caps)
         n_iters_per_epoch = int(np.ceil(float(n_examples) / self.batch_size))
-        n_iters_val = int(np.ceil(float(n_val) / self.batch_size))
 
         tags = ['Bleu_1', 'Bleu_2', 'Bleu_3', 'Bleu_4', 'METEOR', 'CIDEr', 'ROUGE_L']
         # build graphs for training model and sampling captions
@@ -108,22 +105,38 @@ class Solver(object):
                                 tower_loss.append(one_loss)
                                 # reuse variables
                                 tf.get_variable_scope().reuse_variables()
+                                alphas, betas, generated_cap = self.model.build_sampler(_feat_batch,
+                                                                                        max_len=self.max_words)
+                                tf.get_variable_scope().reuse_variables()
+                                tower_generated_cap.append(generated_cap)
                                 # compute grad
                                 var_list = tf.trainable_variables()
                                 grad = tf.gradients(one_loss, var_list)
                                 tower_grad.append(grad)
                 # multi gpu loss operation: average loss
                 loss_op = self.average_loss(tower_loss)
+                # caption operation
+                generated_caption_op = tf.concat(tower_generated_cap, 0)
                 # average grad
                 average_grad = self.average_gradients(tower_grad)
                 # initialize optimizer
                 optimizer = self.optimizer(learning_rate=self.learning_rate, beta1=0.1, beta2=0.001)
                 # train operation: apply gradients
                 train_op = optimizer.apply_gradients(zip(average_grad, tf.trainable_variables()))
-                saver = tf.train.Saver(tf.global_variables())
+
+                # summary op
+                tf.summary.scalar('batch_loss', loss_op)
+                for var in tf.trainable_variables():
+                    tf.summary.histogram(var.op.name, var)
+                for grad, var in zip(average_grad, tf.trainable_variables()):
+                    tf.summary.histogram(var.op.name + '/gradient', grad)
+
+                summary_op = tf.summary.merge_all()
+
                 # create session
                 sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
                 summary_writer = tf.summary.FileWriter(self.log_path, sess.graph)
+                saver = tf.train.Saver(tf.global_variables())
                 # initialized variables
                 sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
                 for epoch in range(self.n_epochs):
@@ -133,11 +146,33 @@ class Solver(object):
                     train_ids = train_ids[rand_idxs]
                     train_lengths = train_lengths[rand_idxs]
                     for it in range(n_iters_per_epoch):
-                        captions_batch = train_caps[i * self.batch_size:(i + 1) * self.batch_size]
-                        image_idxs_batch = train_ids[i * self.batch_size:(i + 1) * self.batch_size]
+                        captions_batch = train_caps[it * self.batch_size:(it + 1) * self.batch_size]
+                        image_idxs_batch = train_ids[it * self.batch_size:(it + 1) * self.batch_size]
                         features_batch = [self.data.feature(vid) for vid in image_idxs_batch]
                         feed_dict = {self.features: features_batch, self.captions: captions_batch}
-                        _, loss = sess.run((train_op, loss_op), feed_dict=feed_dict)
+                        _, loss, summary_str = sess.run((train_op, loss_op, summary_op), feed_dict=feed_dict)
+                        # print epoch, it, loss
+                        summary_writer.add_summary(summary_str, epoch * n_iters_per_epoch + it)
+                        if (it + 1) % self.print_every == 0:
+                            print "\nTrain loss at epoch %d & iteration %d (mini-batch): %.5f" % (
+                                epoch + 1, it + 1, loss)
+                            ground_truths = train_caps[train_ids == image_idxs_batch[0]]
+                            decoded = decode_captions(ground_truths[:, 1:], self.data.vocab.idx2word)
+                            for j, gt in enumerate(decoded):
+                                print "Ground truth %d: %s" % (j + 1, gt.encode('utf-8'))
+                            gen_caps = sess.run(generated_caption_op, feed_dict)
+                            decoded = decode_captions(gen_caps, self.data.vocab.idx2word)
+                            print "Generated caption: %s\n" % decoded[0]
+                    self.evaluate_on_split(sess=sess, generated_captions=generated_caption_op,
+                                           summary_writer=summary_writer,
+                                           epoch=epoch, tags=tags, split='train')
+                    scores = self.evaluate_on_split(sess=sess, generated_captions=generated_caption_op,
+                                                    summary_writer=summary_writer,
+                                                    epoch=epoch, tags=tags, split='val')
+                    write_bleu(scores=scores, path=self.model_path, epoch=epoch)
+                    self.evaluate_on_split(sess=sess, generated_captions=generated_caption_op,
+                                           summary_writer=summary_writer,
+                                           epoch=epoch, tags=tags, split='test')
                     # save model
                     saver.save(sess, os.path.join(self.model_path, 'model'), global_step=epoch + 1)
                     print "model-%s saved." % (epoch + 1)
@@ -152,7 +187,7 @@ class Solver(object):
             features_batch = [self.data.feature(vid) for vid in
                               unique_ids[i * self.batch_size:(i + 1) * self.batch_size]]
             features_batch = np.asarray(features_batch)
-            feed_dict = {self.model.features: features_batch}
+            feed_dict = {self.features: features_batch}
             gen_cap = sess.run(generated_captions, feed_dict=feed_dict)
             all_gen_cap[i * self.batch_size:(i + 1) * self.batch_size] = gen_cap
         all_decoded = decode_captions(all_gen_cap, self.data.vocab.idx2word)
