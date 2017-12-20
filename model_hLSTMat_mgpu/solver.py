@@ -121,7 +121,8 @@ class Solver(object):
                 average_grad = self.average_gradients(tower_grad)
                 # initialize optimizer
                 global_step = tf.Variable(0, trainable=False)
-                boundaries = [10 * n_iters_per_epoch]
+                increase_global_step_op = tf.assign(global_step, global_step + 1)
+                boundaries = [10]
                 values = [self.learning_rate, 0.1 * self.learning_rate]
                 piecewise_learning_rate = tf.train.piecewise_constant(global_step, boundaries, values)
                 learning_rate = piecewise_learning_rate
@@ -187,6 +188,8 @@ class Solver(object):
                     # save model
                     saver.save(sess, os.path.join(self.model_path, 'model'), global_step=epoch + 1)
                     print "model-%s saved." % (epoch + 1)
+                    # increase global step, which is used to decay learning rate
+                    sess.run(increase_global_step_op)
 
     def evaluate_on_split(self, sess, generated_captions, summary_writer, epoch, tags, split='train'):
         caps = self.data.captions[split]
