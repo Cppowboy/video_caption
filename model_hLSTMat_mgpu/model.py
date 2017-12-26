@@ -13,6 +13,7 @@
 from __future__ import division
 
 import tensorflow as tf
+from model_hLSTMat_mgpu.cmb import CMBCell
 
 
 class Model(object):
@@ -56,23 +57,24 @@ class Model(object):
         with tf.variable_scope('initial_lstm'):
             features_mean = tf.reduce_mean(features, 1)
 
-            w_h = tf.get_variable('w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
-            b_h = tf.get_variable('b_h', [self.dim_hidden], initializer=self.const_initializer)
-            h = tf.nn.tanh(tf.matmul(features_mean, w_h) + b_h)
+            # w_h = tf.get_variable('w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            # b_h = tf.get_variable('b_h', [self.dim_hidden], initializer=self.const_initializer)
+            # h = tf.nn.tanh(tf.matmul(features_mean, w_h) + b_h)
 
             w_m = tf.get_variable('w_m', [self.D, self.dim_hidden], initializer=self.weight_initializer)
             b_m = tf.get_variable('b_m', [self.dim_hidden], initializer=self.const_initializer)
             m = tf.nn.tanh(tf.matmul(features_mean, w_m) + b_m)
 
-            _w_h = tf.get_variable('_w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
-            _b_h = tf.get_variable('_b_h', [self.dim_hidden], initializer=self.const_initializer)
-            _h = tf.nn.tanh(tf.matmul(features_mean, _w_h) + _b_h)
+            # _w_h = tf.get_variable('_w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
+            # _b_h = tf.get_variable('_b_h', [self.dim_hidden], initializer=self.const_initializer)
+            # _h = tf.nn.tanh(tf.matmul(features_mean, _w_h) + _b_h)
 
             _w_m = tf.get_variable('_w_m', [self.D, self.dim_hidden], initializer=self.weight_initializer)
             _b_m = tf.get_variable('_b_m', [self.dim_hidden], initializer=self.const_initializer)
             _m = tf.nn.tanh(tf.matmul(features_mean, _w_m) + _b_m)
 
-            return m, h, _m, _h
+            # return m, h, _m, _h
+            return m, _m
 
     def _word_embedding(self, inputs, reuse=False):
         with tf.variable_scope('word_embedding', reuse=reuse):
@@ -152,18 +154,21 @@ class Model(object):
         # batch normalize feature vectors
         features = self._batch_norm(features, mode='train', name='conv_features')
 
-        m, h, _m, _h = self._get_initial_lstm(features=features)
+        m, _m = self._get_initial_lstm(features=features)
         y = self._word_embedding(inputs=x_in)
         features_proj = self._project_features(features=features)
 
         loss = 0.0
         alpha_list = []
         beta_list = []
-        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
-        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        # bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        # top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        bottom_lstm_cell = CMBCell(num_units=self.dim_hidden)
+        top_lstm_cell = CMBCell(num_units=self.dim_hidden)
         for t in range(self.n_time_step):
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])
+                # _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])
+                (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=m)
 
             context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
@@ -173,7 +178,8 @@ class Model(object):
                 beta_list.append(beta)
 
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                # _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                (_m, _h) = top_lstm_cell(inputs=h, state=_m)
 
             # _context, beta = self._adjusted_layer(context, h, _h, reuse=(t != 0))
             logits = self._mlp_layer(y[:, t, :], h, context, _h, beta, dropout=self.dropout, reuse=(t != 0))
@@ -193,15 +199,15 @@ class Model(object):
         # batch normalize feature vectors
         features = self._batch_norm(features, mode='test', name='conv_features')
 
-        m, h, _m, _h = self._get_initial_lstm(features=features)
+        m, _m = self._get_initial_lstm(features=features)
         features_proj = self._project_features(features=features)
 
         sampled_word_list = []
         alpha_list = []
         # sel_list = []
         beta_list = []
-        bottom_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
-        top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
+        bottom_lstm_cell = CMBCell(num_units=self.dim_hidden)
+        top_lstm_cell = CMBCell(num_units=self.dim_hidden)
 
         for t in range(max_len):
             if t == 0:
@@ -210,7 +216,8 @@ class Model(object):
                 x = self._word_embedding(inputs=sampled_word, reuse=True)
 
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=x, state=[m, h])
+                # _, (m, h) = bottom_lstm_cell(inputs=x, state=[m, h])
+                (m, h) = bottom_lstm_cell(inputs=x, state=m)
 
             context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
@@ -220,7 +227,8 @@ class Model(object):
                 # sel_list.append(sel)
                 beta_list.append(beta)
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                # _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                (_m, _h) = top_lstm_cell(inputs=h, state=_m)
 
             # _context, beta = self._adjusted_layer(context, h, _h)
             # beta_list.append(beta)
