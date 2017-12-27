@@ -52,10 +52,6 @@ class Model(object):
         self.const_initializer = tf.constant_initializer(0.0)
         self.emb_initializer = tf.random_uniform_initializer(minval=-1.0, maxval=1.0)
 
-        # Place holder for features and captions
-        self.features = tf.placeholder(tf.float32, [None, self.L, self.D])
-        self.captions = tf.placeholder(tf.int32, [None, self.n_time_step + 2])
-
     def _get_initial_lstm(self, features):
         with tf.variable_scope('initial_lstm'):
             features_mean = tf.reduce_mean(features, 1)
@@ -147,11 +143,8 @@ class Model(object):
                                             updates_collections=None,
                                             scope=(name + 'batch_norm'))
 
-    def build_model(self):
-        features = self.features
-        captions = self.captions
+    def build_model(self, features, captions):
         batch_size = tf.shape(features)[0]
-
         x_in = captions[:, :self.n_time_step + 1]
         x_out = captions[:, 1:]
         mask = tf.to_float(tf.not_equal(x_out, self._null))
@@ -195,8 +188,7 @@ class Model(object):
 
         return loss / tf.to_float(batch_size)
 
-    def build_sampler(self, max_len=20):
-        features = self.features
+    def build_sampler(self, features, max_len=20):
 
         # batch normalize feature vectors
         features = self._batch_norm(features, mode='test', name='conv_features')

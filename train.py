@@ -17,8 +17,8 @@ def main():
 
     solver = Solver(model, data, n_epochs=100, batch_size=64, update_rule='adam',
                     learning_rate=0.0001, print_every=25, save_every=10, image_path='./image/',
-                    pretrained_model=None, model_path='model/lstm/', test_model='model/lstm/model-10',
-                    print_bleu=True, log_path='log/')
+                    pretrained_model=None, model_path='model/msvd/hLSTMat', test_model='model/lstm/model-10',
+                    print_bleu=True, log_path='log/msvd/hLSTMat', dim_feature=[28, 2048], num_gpus=1)
 
     solver.train()
 
