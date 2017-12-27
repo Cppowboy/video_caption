@@ -52,9 +52,9 @@ class Model(object):
         self.const_initializer = tf.constant_initializer(0.0)
         self.emb_initializer = tf.random_uniform_initializer(minval=-1.0, maxval=1.0)
 
-    def _get_initial_lstm(self, features):
+    def _get_initial_lstm(self, features_mean):
         with tf.variable_scope('initial_lstm'):
-            features_mean = tf.reduce_mean(features, 1)
+            # features_mean = tf.reduce_mean(features, 1)
 
             w_h = tf.get_variable('w_h', [self.D, self.dim_hidden], initializer=self.weight_initializer)
             b_h = tf.get_variable('b_h', [self.dim_hidden], initializer=self.const_initializer)
@@ -97,7 +97,7 @@ class Model(object):
             h_att = tf.nn.relu(features_proj + tf.expand_dims(tf.matmul(h, w), 1) + b)  # (N, L, D)
             out_att = tf.reshape(tf.matmul(tf.reshape(h_att, [-1, self.D]), w_att), [-1, self.L])  # (N, L)
             alpha = tf.nn.softmax(out_att)
-            context = tf.reduce_sum(features * tf.expand_dims(alpha, 2), 1, name='context')  # (N, D)
+            context = tf.reduce_mean(features * tf.expand_dims(alpha, 2), 1, name='context')  # (N, D)
             return context, alpha
 
     def _selector(self, context, h, reuse=False):
@@ -151,8 +151,8 @@ class Model(object):
 
         # batch normalize feature vectors
         features = self._batch_norm(features, mode='train', name='conv_features')
-
-        m, h, _m, _h = self._get_initial_lstm(features=features)
+        features_mean = tf.reduce_mean(features, 1)
+        m, h, _m, _h = self._get_initial_lstm(features_mean=features_mean)
         y = self._word_embedding(inputs=x_in)
         features_proj = self._project_features(features=features)
 
@@ -192,8 +192,8 @@ class Model(object):
 
         # batch normalize feature vectors
         features = self._batch_norm(features, mode='test', name='conv_features')
-
-        m, h, _m, _h = self._get_initial_lstm(features=features)
+        features_mean = tf.reduce_mean(features, 1)
+        m, h, _m, _h = self._get_initial_lstm(features_mean=features_mean)
         features_proj = self._project_features(features=features)
 
         sampled_word_list = []
