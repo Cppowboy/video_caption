@@ -103,4 +103,4 @@ ENV/
 *.pkl
 log/
 model/
-captions/
+result/

@@ -4,7 +4,7 @@
 # N is batch size.
 # L is spacial size of feature vector (196).
 # D is dimension of image feature vector (512).
-# T is the number of time step which is equal to caption's length-1 (16).
+# T is the number of time step which is equal to result's length-1 (16).
 # V is vocabulary size (about 10000).
 # M is dimension of word vector which is embedding size (default is 512).
 # H is dimension of hidden state (default is 1024).
@@ -17,7 +17,7 @@ import tensorflow as tf
 
 class Model(object):
     def __init__(self, word_to_idx, dim_feature=[196, 2048], dim_embed=512, dim_hidden=1024, n_time_step=16,
-                 prev2out=True, ctx2out=True, alpha_c=0.0, selector=True, dropout=True):
+                 prev2out=True, ctx2out=True, alpha_c=0.0, selector=True, dropout=True, decay_c=1e-4):
         """
         Args:
             word_to_idx: word-to-index mapping dictionary.
@@ -37,6 +37,7 @@ class Model(object):
         self.prev2out = prev2out
         self.ctx2out = ctx2out
         self.alpha_c = alpha_c
+        self.decay_c = decay_c
         self.selector = selector
         self.dropout = dropout
         self.num_words = len(word_to_idx)
@@ -150,7 +151,7 @@ class Model(object):
         mask = tf.to_float(tf.not_equal(x_out, self._null))
 
         # batch normalize feature vectors
-        features = self._batch_norm(features, mode='train', name='conv_features')
+        # features = self._batch_norm(features, mode='train', name='conv_features')
         features_mean = tf.reduce_mean(features, 1)
         m, h, _m, _h = self._get_initial_lstm(features_mean=features_mean)
         y = self._word_embedding(inputs=x_in)
@@ -186,12 +187,18 @@ class Model(object):
             alpha_reg = self.alpha_c * tf.reduce_sum((1.0 - alphas_all) ** 2)
             loss += alpha_reg
 
+        if self.decay_c > 0:
+            weight_decay = 0
+            for var in tf.trainable_variables():
+                weight_decay += tf.reduce_sum(tf.square(var))
+            loss += weight_decay * self.decay_c
+
         return loss / tf.to_float(batch_size)
 
     def build_sampler(self, features, max_len=20):
 
         # batch normalize feature vectors
-        features = self._batch_norm(features, mode='test', name='conv_features')
+        # features = self._batch_norm(features, mode='test', name='conv_features')
         features_mean = tf.reduce_mean(features, 1)
         m, h, _m, _h = self._get_initial_lstm(features_mean=features_mean)
         features_proj = self._project_features(features=features)

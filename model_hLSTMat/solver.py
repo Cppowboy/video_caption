@@ -219,6 +219,10 @@ class Solver(object):
         ref = {}
         for vid in unique_ids:
             ref[vid] = decode_captions(caps[ids == vid][:, 1:], self.data.vocab.idx2word)
+        with open('result/cand_%s_%d.txt' % (split, epoch), 'w') as file:
+            file.write(str(cand))
+        with open('result/ref_%s_%d.txt' % (split, epoch), 'w') as file:
+            file.write(str(ref))
         # evaluate
         scores = evaluate(ref=ref, cand=cand, get_scores=True)
         for tag in tags:
