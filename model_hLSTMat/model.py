@@ -164,7 +164,7 @@ class Model(object):
         top_lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=self.dim_hidden)
         for t in range(self.n_time_step):
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=y[:, t, :], state=[m, h])
+                _, (m, h) = bottom_lstm_cell(inputs=tf.concat([_h, features_mean, y[:, t, :]], axis=1), state=[m, h])
 
             context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
@@ -174,7 +174,7 @@ class Model(object):
                 beta_list.append(beta)
 
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                _, (_m, _h) = top_lstm_cell(inputs=tf.concat([context, h], axis=1), state=[_m, _h])
 
             # _context, beta = self._adjusted_layer(context, h, _h, reuse=(t != 0))
             logits = self._mlp_layer(y[:, t, :], h, context, _h, beta, dropout=self.dropout, reuse=(t != 0))
@@ -217,7 +217,7 @@ class Model(object):
                 x = self._word_embedding(inputs=sampled_word, reuse=True)
 
             with tf.variable_scope('bottom_lstm', reuse=(t != 0)):
-                _, (m, h) = bottom_lstm_cell(inputs=x, state=[m, h])
+                _, (m, h) = bottom_lstm_cell(inputs=tf.concat([_h, features_mean, x], axis=1), state=[m, h])
 
             context, alpha = self._attention_layer(features, features_proj, h, reuse=(t != 0))
             alpha_list.append(alpha)
@@ -227,7 +227,7 @@ class Model(object):
                 # sel_list.append(sel)
                 beta_list.append(beta)
             with tf.variable_scope('top_lstm', reuse=(t != 0)):
-                _, (_m, _h) = top_lstm_cell(inputs=h, state=[_m, _h])
+                _, (_m, _h) = top_lstm_cell(inputs=tf.concat([context, h], axis=1), state=[_m, _h])
 
             # _context, beta = self._adjusted_layer(context, h, _h)
             # beta_list.append(beta)
